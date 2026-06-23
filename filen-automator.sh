@@ -121,21 +121,37 @@ do_setup() {
     log_success "'curl' dependency verified."
   fi
 
-  # 3. SECURE FILEN CLI INGESTION PIPELINE (Bypasses broken official sh script)
+  # 3. SECURE FILEN CLI INGESTION PIPELINE (With SHA-256 Checksum Verification)
   if ! command -v filen &>/dev/null; then
-    log_info "Filen CLI execution target not in path. Downloading binary directly from GitHub Releases..."
+    log_info "Filen CLI execution target not in path. Downloading binary asset..."
 
     # Create destination directory structure safely
     mkdir -p "$HOME/.filen-cli/bin"
 
-    # Fetch the stable standalone Linux binary directly
-    if ! curl -fsSL "https://github.com/FilenCloudDrives/cli/releases/latest/download/filen-linux-x64" -o "$HOME/.filen-cli/bin/filen"; then
-      log_error "Failed to download Filen CLI binary asset from GitHub."
+    TARGET_BIN="$HOME/.filen-cli/bin/filen"
+    EXPECTED_HASH="be690d94d3310187dc7b4fe46b3e49becfb327c29ac64d49cfe73252c7c3c04a"
+
+    # Download stable binary asset directly from the releases repository
+    if ! curl -fsSL "https://github.com/FilenCloudDienste/filen-cli/releases/download/v0.0.36/filen-cli-v0.0.36-linux-x64" -o "$TARGET_BIN"; then
+      log_error "Failed to download Filen CLI binary asset from GitHub releases repo."
       exit 1
     fi
 
+    # Enforce Integrity Check
+    log_info "Verifying binary cryptographic signature integrity..."
+    ACTUAL_HASH=$(sha256sum "$TARGET_BIN" | awk '{print $1}')
+
+    if [ "$ACTUAL_HASH" != "$EXPECTED_HASH" ]; then
+      log_error "SHA-256 Checksum Mis-match! Binary may be corrupted or compromised."
+      log_error "Expected: $EXPECTED_HASH"
+      log_error "Actual:   $ACTUAL_HASH"
+      rm -f "$TARGET_BIN"
+      exit 1
+    fi
+    log_success "SHA-256 Signature verified match."
+
     # Enforce binary execution privileges
-    chmod +x "$HOME/.filen-cli/bin/filen"
+    chmod +x "$TARGET_BIN"
 
     # Immediate session path re-binding
     export PATH="$HOME/.filen-cli/bin:$PATH"
@@ -201,7 +217,7 @@ do_setup() {
 
   log_info "Writing unit manifest models to disk using macro definitions (%h)..."
 
-  # Write Service utilizing precise flock lockups & systemd %h macro path expansions
+  # Note: Escaping \$FILEN_BIN allows the script configuration to build correctly for Git portability
   cat <<EOF >"$SERVICE_FILE"
 [Unit]
 Description=Filen Daily Backup Sync
